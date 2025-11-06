@@ -110,31 +110,15 @@
 
   rec.onresult = e => {
   let interim = "";
-  for (let i = e.resultIndex; i < e.results.length; ++i) {
-    const t = e.results[i][0].transcript.trim();
-    if (!t) continue;
+  finalTranscript = ""; // start helt på nytt hver gang
 
-    if (e.results[i].isFinal) {
-      // unngå å legge til samme setning flere ganger
-      if (!finalTranscript.endsWith(t)) {
-        finalTranscript += (finalTranscript ? " " : "") + t;
-      }
-    } else {
-      interim += (interim ? " " : "") + t;
-    }
+  for (let i = e.resultIndex; i < e.results.length; ++i) {
+    const t = e.results[i][0].transcript;
+    if (e.results[i].isFinal) finalTranscript += " " + t;
+    else interim += " " + t;
   }
 
-  // Behold tekst som allerede står i feltet
-  const prefix = baseTextAtStart ? baseTextAtStart + " " : "";
-  const combined = (prefix + finalTranscript + (interim ? " " + interim : "")).trim();
-
-  // Fjern gjentakelser i hele teksten (enkel heuristikk)
-  const deduped = combined
-    .split(/\s+/)
-    .filter((w, i, arr) => w !== arr[i - 1])
-    .join(" ");
-
-  input.value = deduped;
+  input.value = (finalTranscript + " " + interim).trim();
   input.dispatchEvent(new Event("input"));
 };
 
