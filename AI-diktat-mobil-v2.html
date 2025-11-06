@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-diktat (mobil) – v2 med feilmeldinger</title>
+<style>
+  body {font-family: system-ui, sans-serif; margin:0; padding:1rem; background:linear-gradient(to bottom,#f9fbff,#e8eef7); color:#222;}
+  h2 { text-align:center; margin:0 0 1rem; }
+  textarea { width:100%; min-height:40vh; font-size:1rem; padding:0.8rem; border:1px solid #bbb; border-radius:0.7rem; resize:vertical; background:#fff; }
+  .btn-row { display:flex; flex-wrap:wrap; gap:0.5rem; justify-content:center; margin-top:1rem; }
+  button { flex:1 1 45%; padding:0.9rem 1rem; font-size:1rem; border:none; border-radius:0.7rem; color:#fff; background:#3b82f6; }
+  button:active { opacity:.7; transform:scale(.98); }
+  #ai_mic { background:#10b981; }
+  #ai_copy { background:#6366f1; }
+  #clearAll { background:#ef4444; }
+  .status { margin-top:0.75rem; font-size:0.95rem; text-align:center; color:#374151; }
+  .status.bad { color:#b91c1c; }
+  .status.ok { color:#065f46; }
+  @media (min-width:700px){ button { flex:0 0 auto; } .btn-row { gap:.8rem; } }
+</style>
+</head>
+<body>
+  <h2>🤖 AI-diktat</h2>
+  <textarea id="ai_input" placeholder="Skriv eller dikter tekst her..."></textarea>
+  <div class="btn-row">
+    <button id="ai_mic">🎙️ Start diktering</button>
+    <button id="ai_copy">📋 Kopier</button>
+    <button id="clearAll">🗑️ Tøm feltet</button>
+  </div>
+  <div id="mic_status" class="status"></div>
+
+<script>
+(() => {
+  const micBtn = document.getElementById("ai_mic");
+  const input = document.getElementById("ai_input");
+  const copyBtn = document.getElementById("ai_copy");
+  const clearBtn = document.getElementById("clearAll");
+  const statusEl = document.getElementById("mic_status");
+
+  // --- Kopier ---
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(input.value || "").then(() => {
+      copyBtn.textContent = "✅ Kopiert!";
+      setTimeout(() => copyBtn.textContent = "📋 Kopier", 1500);
+    });
+  });
+
+  // --- Tøm felt ---
+  clearBtn.addEventListener("click", () => {
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+  });
+
+  // --- Miljøsjekk ---
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isSecure = location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+  if (!SR) {
+    micBtn.style.display = "none";
+    statusEl.textContent = "Talediktering støttes ikke i denne nettleseren. Bruk Chrome/Edge på PC eller Android.";
+    statusEl.classList.add("bad");
+    return;
+  }
+  if (isIOS) {
+    // Web Speech recognition er ikke støttet på iOS (kun syntese)
+    micBtn.style.display = "none";
+    statusEl.textContent = "Talediktering er ikke støttet på iPhone/iPad. Bruk PC/Android.";
+    statusEl.classList.add("bad");
+    return;
+  }
+  if (!isSecure) {
+    statusEl.textContent = "Tips: Kjør siden over https eller localhost for mikrofontilgang (ikke file://).";
+  }
+
+  // --- Oppsett av gjenkjenner ---
+  const rec = new SR();
+  rec.lang = "nb-NO";
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+
+  let listening = false;
+  let finalTranscript = "";
+  let baseTextAtStart = "";
+
+  micBtn.addEventListener("click", () => {
+    if (!listening) {
+      baseTextAtStart = (input.value || "").trim();
+      finalTranscript = "";
+      try {
+        rec.start();
+        micBtn.textContent = "⏹️ Stopper diktering...";
+        listening = true;
+        statusEl.textContent = "Lytter… snakk tydelig i mikrofonen.";
+        statusEl.classList.remove("bad"); statusEl.classList.add("ok");
+      } catch (err) {
+        statusEl.textContent = "Kunne ikke starte diktering: " + err.message;
+        statusEl.classList.add("bad");
+      }
+    } else {
+      rec.stop();
+      micBtn.textContent = "🎙️ Start diktering";
+      listening = false;
+      statusEl.textContent = "Stoppet.";
+      statusEl.classList.remove("ok");
+    }
+  });
+
+  rec.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; ++i) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalTranscript += (finalTranscript ? " " : "") + t;
+      else interim += (interim ? " " : "") + t;
+    }
+    const prefix = baseTextAtStart ? baseTextAtStart + " " : "";
+    input.value = (prefix + finalTranscript + (interim ? " " + interim : "")).trim();
+    input.dispatchEvent(new Event("input"));
+  };
+
+  rec.onaudiostart = () => { statusEl.textContent = "Mikrofon aktiv…"; statusEl.classList.add("ok"); };
+  rec.onspeechstart = () => { statusEl.textContent = "Fanget tale…"; };
+  rec.onspeechend = () => { statusEl.textContent = "Tale slutt – prosesserer…"; };
+  rec.onsoundend = () => { /* quiet */ };
+
+  rec.onerror = (e) => {
+    const map = {
+      "no-speech": "Ingen tale registrert. Prøv igjen nærmere mikrofonen.",
+      "audio-capture": "Finner ingen mikrofon. Koble til og gi tilgang.",
+      "not-allowed": "Tilgang til mikrofon avslått. Sjekk nettleserens rettigheter.",
+      "service-not-allowed": "Tjenesten er blokkert av nettleseren.",
+      "network": "Nettverksfeil. Prøv igjen."
+    };
+    statusEl.textContent = "Feil: " + (map[e.error] || e.error);
+    statusEl.classList.add("bad");
+  };
+
+  rec.onend = () => {
+    micBtn.textContent = "🎙️ Start diktering";
+    listening = false;
+    if (!statusEl.classList.contains("bad")) {
+      statusEl.textContent = "Stoppet.";
+      statusEl.classList.remove("ok");
+    }
+  };
+})();
+</script>
+</body>
+</html>
