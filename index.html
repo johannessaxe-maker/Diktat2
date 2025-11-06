@@ -108,17 +108,35 @@
     }
   });
 
-  rec.onresult = (e) => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; ++i) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) finalTranscript += (finalTranscript ? " " : "") + t;
-      else interim += (interim ? " " : "") + t;
+  rec.onresult = e => {
+  let interim = "";
+  for (let i = e.resultIndex; i < e.results.length; ++i) {
+    const t = e.results[i][0].transcript.trim();
+    if (!t) continue;
+
+    if (e.results[i].isFinal) {
+      // unngå å legge til samme setning flere ganger
+      if (!finalTranscript.endsWith(t)) {
+        finalTranscript += (finalTranscript ? " " : "") + t;
+      }
+    } else {
+      interim += (interim ? " " : "") + t;
     }
-    const prefix = baseTextAtStart ? baseTextAtStart + " " : "";
-    input.value = (prefix + finalTranscript + (interim ? " " + interim : "")).trim();
-    input.dispatchEvent(new Event("input"));
-  };
+  }
+
+  // Behold tekst som allerede står i feltet
+  const prefix = baseTextAtStart ? baseTextAtStart + " " : "";
+  const combined = (prefix + finalTranscript + (interim ? " " + interim : "")).trim();
+
+  // Fjern gjentakelser i hele teksten (enkel heuristikk)
+  const deduped = combined
+    .split(/\s+/)
+    .filter((w, i, arr) => w !== arr[i - 1])
+    .join(" ");
+
+  input.value = deduped;
+  input.dispatchEvent(new Event("input"));
+};
 
   rec.onaudiostart = () => { statusEl.textContent = "Mikrofon aktiv…"; statusEl.classList.add("ok"); };
   rec.onspeechstart = () => { statusEl.textContent = "Fanget tale…"; };
